@@ -6,7 +6,7 @@ DEBUG_APP := $(DERIVED)/Build/Products/Debug/$(APP_NAME).app
 RELEASE_APP := $(DERIVED)/Build/Products/Release/$(APP_NAME).app
 INSTALLED_APP := /Applications/$(APP_NAME).app
 
-.PHONY: gen icons build release test install run clean
+.PHONY: gen icons build release test install run clean promo-take promo-render
 
 gen:
 	xcodegen generate --quiet
@@ -32,6 +32,14 @@ install: release
 
 run: install
 	open "$(INSTALLED_APP)"
+
+# Records a promo take on the built-in display (hands off the mouse and keyboard while it runs).
+promo-take:
+	Promo/take.sh
+
+# Renders the promo videos and the README animation from the last take.
+promo-render:
+	Promo/compose.sh
 
 clean:
 	rm -rf build $(PROJECT)

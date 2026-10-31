@@ -12,7 +12,7 @@
 <p align="center"><b>Coded 100% by Claude.</b></p>
 
 <p align="center">
-  <img src="docs/picker.png" width="560" alt="The Pasteup picker, with the fourth row highlighted">
+  <img src="docs/demo.gif" width="800" alt="Five names are copied one by one from a Numbers table, skipping people on leave, then pasted in the same order into Monday to Friday of another table with Control-Command-V and Return">
 </p>
 
 ## Serial paste
@@ -25,7 +25,11 @@ Say you need to move a name, an email address, a phone number and a street addre
 
 After the first paste, every next clip is just ⌃⌘V, ↩. As soon as you copy something new, the picker goes back to highlighting the newest clip at the top.
 
-The screenshot above shows this after two pastes: the name and the email address are on top, and the phone number is highlighted as the next one up.
+The screenshot below shows this after two pastes: the name and the email address are on top, and the phone number is highlighted as the next one up.
+
+<p align="center">
+  <img src="docs/picker.png" width="560" alt="The Pasteup picker, with the fourth row highlighted">
+</p>
 
 ## Features
 
@@ -62,6 +66,7 @@ The build is ad-hoc signed by default. macOS ties the Accessibility permission t
 - `Packages/PasteupCore`: the history rules (the remembered row, duplicates, history size) and the picker state, as a plain Swift package with tests.
 - `Pasteup`: the app: clipboard monitoring, storage, the picker panel and the settings, in SwiftUI and AppKit.
 - `project.yml`: the XcodeGen spec. The Xcode project is generated from it and isn't checked in.
+- `Promo`: scripts that record the promo video with real input in Numbers and render it (`make promo-take`, then `make promo-render`).
 
 ## Credits
 
