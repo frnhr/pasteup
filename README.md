@@ -34,7 +34,8 @@ The screenshot below shows this after two pastes: the name and the email address
 ## Features
 
 - **Menu bar only.** No Dock icon. The picker opens in the middle of the active screen, and the paste goes to the app you were working in.
-- **Keyboard first.** ↑ ↓ to move, ↩ to paste, ⇧↩ to paste as plain text, ⌘⌫ to delete a clip, type to filter, esc to clear the filter or close. Double-clicking a row also pastes.
+- **Keyboard first.** ↑ ↓ to move, ↩ to paste, ⇧↩ to paste as plain text, ⌘S to save or unsave a clip, ⌘⌫ to delete a clip, ← → to switch between History and Saved, type to filter, esc to clear the filter or close. Double-clicking a row also pastes.
+- **Saved clips.** Click the bookmark on a clip (it shows when you point at the row or select it), or press ⌘S, to keep a copy in the Saved list. Saved clips stay until you unsave them: the history size, deleting and Clear History don't touch them. Each clip is saved only once, and a clip in the history shows a filled bookmark when the same content is saved. Pasting from Saved follows the same remembered-row rule as the history. The picker always opens on History.
 - **Text, rich text, images, files and colors.** Every format of a copied item is kept, so the app you paste into gets the same choices it would get from the original copy. Rows show a short preview: the text, an image thumbnail, file names or a color swatch, plus the app it was copied from.
 - **History that survives restarts.** Clips are stored in `~/Library/Application Support/Pasteup`. The history keeps 50 clips by default (1 to 1000 in Settings). Copying the same thing again within 2 seconds doesn't add a duplicate; otherwise duplicates are kept, because the order matters.
 - **Respects password managers.** Items marked as concealed or transient (the [nspasteboard.org](http://nspasteboard.org) convention, used by 1Password and others) are not recorded.
@@ -63,7 +64,7 @@ The build is ad-hoc signed by default. macOS ties the Accessibility permission t
 
 ## Project layout
 
-- `Packages/PasteupCore`: the history rules (the remembered row, duplicates, history size) and the picker state, as a plain Swift package with tests.
+- `Packages/PasteupCore`: the history rules (the remembered row, duplicates, history size), the saved clips and the picker state, as a plain Swift package with tests.
 - `Pasteup`: the app: clipboard monitoring, storage, the picker panel and the settings, in SwiftUI and AppKit.
 - `project.yml`: the XcodeGen spec. The Xcode project is generated from it and isn't checked in.
 - `Promo`: scripts that record the promo video with real input in Numbers and render it (`make promo-take`, then `make promo-render`).

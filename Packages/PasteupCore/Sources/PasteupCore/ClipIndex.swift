@@ -1,7 +1,8 @@
 import Foundation
 
-/// The on-disk format of `history.json`. Blob data lives in separate files next to it.
-public struct HistoryIndex: Codable, Equatable, Sendable {
+/// The on-disk format of a clip list's index (`history.json`, `saved.json`). Blob data lives in separate files
+/// next to it.
+public struct ClipIndex: Codable, Equatable, Sendable {
 	public static let currentVersion = 1
 
 	public enum DecodingError: Error, CustomStringConvertible {
@@ -10,7 +11,7 @@ public struct HistoryIndex: Codable, Equatable, Sendable {
 		public var description: String {
 			switch self {
 			case .unsupportedVersion(let version):
-				"history.json has version \(version), but this app only reads version \(HistoryIndex.currentVersion)"
+				"The index has version \(version), but this app only reads version \(ClipIndex.currentVersion)"
 			}
 		}
 	}
@@ -25,10 +26,16 @@ public struct HistoryIndex: Codable, Equatable, Sendable {
 		clips = history.clips
 	}
 
-	public static func decode(_ data: Data) throws -> HistoryIndex {
+	public init(saved: SavedClips) {
+		version = Self.currentVersion
+		stickyRow = saved.stickyRow
+		clips = saved.clips
+	}
+
+	public static func decode(_ data: Data) throws -> ClipIndex {
 		let decoder = JSONDecoder()
 		decoder.dateDecodingStrategy = .secondsSince1970
-		let index = try decoder.decode(HistoryIndex.self, from: data)
+		let index = try decoder.decode(ClipIndex.self, from: data)
 		guard index.version == currentVersion else {
 			throw DecodingError.unsupportedVersion(index.version)
 		}

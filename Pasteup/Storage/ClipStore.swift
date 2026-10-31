@@ -4,27 +4,31 @@ import os
 
 private let logger = Logger(subsystem: "com.franhrzenjak.pasteup", category: "store")
 
-/// On-disk storage in Application Support:
+/// On-disk storage of one clip list. The history lives in Application Support/Pasteup, the saved clips in its
+/// `saved` subfolder, each with its own index and blobs:
 ///
-///     history.json             the index (see `HistoryIndex`)
+///     history.json             the index (see `ClipIndex`); `saved.json` for the saved clips
 ///     blobs/<clip-id>/0-0.bin  one file per pasteboard representation
 ///     blobs/<clip-id>/thumb.png
 final class ClipStore {
-	static let defaultDirectory = URL.applicationSupportDirectory.appending(path: "Pasteup", directoryHint: .isDirectory)
+	static let historyDirectory = URL.applicationSupportDirectory.appending(path: "Pasteup", directoryHint: .isDirectory)
+	static let savedDirectory = historyDirectory.appending(path: "saved", directoryHint: .isDirectory)
 
 	let directory: URL
+	private let indexName: String
 	private let fileManager = FileManager.default
 
 	private var indexURL: URL {
-		directory.appending(path: "history.json")
+		directory.appending(path: indexName)
 	}
 
 	private var blobsDirectory: URL {
 		directory.appending(path: "blobs", directoryHint: .isDirectory)
 	}
 
-	init(directory: URL) {
+	init(directory: URL, indexName: String) {
 		self.directory = directory
+		self.indexName = indexName
 	}
 
 	func prepare() throws {
@@ -32,22 +36,22 @@ final class ClipStore {
 	}
 
 	/// Returns nil when there is no history yet.
-	func loadIndex() throws -> HistoryIndex? {
+	func loadIndex() throws -> ClipIndex? {
 		guard fileManager.fileExists(atPath: indexURL.path) else { return nil }
-		return try HistoryIndex.decode(Data(contentsOf: indexURL))
+		return try ClipIndex.decode(Data(contentsOf: indexURL))
 	}
 
-	func saveIndex(_ index: HistoryIndex) throws {
+	func saveIndex(_ index: ClipIndex) throws {
 		try index.encoded().write(to: indexURL, options: .atomic)
 	}
 
-	/// Moves an unreadable `history.json` and its blobs into `corrupt-<timestamp>/`, so nothing is lost
+	/// Moves an unreadable index and its blobs into `corrupt-<timestamp>/`, so nothing is lost
 	/// and the app can start fresh. Returns the folder.
-	func quarantineHistory() throws -> URL {
+	func quarantineIndex() throws -> URL {
 		let timestamp = Date.now.formatted(.iso8601).replacingOccurrences(of: ":", with: "-")
 		let folder = directory.appending(path: "corrupt-\(timestamp)", directoryHint: .isDirectory)
 		try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
-		try fileManager.moveItem(at: indexURL, to: folder.appending(path: "history.json"))
+		try fileManager.moveItem(at: indexURL, to: folder.appending(path: indexName))
 		try fileManager.moveItem(at: blobsDirectory, to: folder.appending(path: "blobs", directoryHint: .isDirectory))
 		try prepare()
 		return folder
@@ -64,6 +68,11 @@ final class ClipStore {
 		if let thumbnail {
 			try thumbnail.write(to: thumbnailURL(for: clip.id))
 		}
+	}
+
+	/// Copies the blobs of `clip` into `other` under `newID` (a clone on APFS, so it costs no extra space).
+	func copyBlobs(of clip: Clip, to other: ClipStore, as newID: UUID) throws {
+		try fileManager.copyItem(at: blobFolder(for: clip.id), to: other.blobFolder(for: newID))
 	}
 
 	func readItems(of clip: Clip) throws -> [RawItem] {

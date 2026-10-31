@@ -10,7 +10,13 @@ extension KeyboardShortcuts.Name {
 
 private let logger = Logger(subsystem: "com.franhrzenjak.pasteup", category: "controller")
 
-/// Wires the clipboard monitor, the history, the store, and the picker together.
+/// The two clip lists, shown as tabs in the picker.
+enum ClipList {
+	case history
+	case saved
+}
+
+/// Wires the clipboard monitor, the clip lists, their stores, and the picker together.
 @Observable
 final class AppController {
 	private enum DefaultsKey {
@@ -20,29 +26,35 @@ final class AppController {
 	static let capacityRange = 1...1000
 
 	private(set) var history = ClipHistory()
+	private(set) var saved = SavedClips()
 	private(set) var capacity: Int
 
-	@ObservationIgnored let images: ImageCache
-	@ObservationIgnored private let store: ClipStore
+	@ObservationIgnored private let historyStore: ClipStore
+	@ObservationIgnored private let savedStore: ClipStore
+	@ObservationIgnored private let historyImages: ImageCache
+	@ObservationIgnored private let savedImages: ImageCache
 	@ObservationIgnored private let monitor = ClipboardMonitor()
 	@ObservationIgnored private lazy var picker = PickerController(controller: self)
 
 	init() {
 		let storedCapacity = UserDefaults.standard.object(forKey: DefaultsKey.capacity) as? Int
 		capacity = storedCapacity ?? ClipHistory.defaultCapacity
-		store = ClipStore(directory: ClipStore.defaultDirectory)
-		images = ImageCache(store: store)
+		historyStore = ClipStore(directory: ClipStore.historyDirectory, indexName: "history.json")
+		savedStore = ClipStore(directory: ClipStore.savedDirectory, indexName: "saved.json")
+		historyImages = ImageCache(store: historyStore)
+		savedImages = ImageCache(store: savedStore)
 	}
 
 	func start() {
 		do {
-			try store.prepare()
+			try historyStore.prepare()
+			try savedStore.prepare()
 		} catch {
 			Alerts.showError("Pasteup can't create its storage folder and will quit.", error: error)
 			NSApp.terminate(nil)
 			return
 		}
-		guard loadHistory() else { return }
+		guard loadHistory(), loadSaved() else { return }
 
 		if !Paster.isTrusted {
 			Paster.requestTrust()
@@ -76,10 +88,38 @@ final class AppController {
 		}
 	}
 
+	func clips(in list: ClipList) -> [Clip] {
+		switch list {
+		case .history: history.clips
+		case .saved: saved.clips
+		}
+	}
+
+	/// The row to highlight when the list is shown.
+	func initialSelection(in list: ClipList) -> Int? {
+		switch list {
+		case .history: history.initialSelection
+		case .saved: saved.initialSelection
+		}
+	}
+
+	func images(for list: ClipList) -> ImageCache {
+		switch list {
+		case .history: historyImages
+		case .saved: savedImages
+		}
+	}
+
+	/// Whether a clip with the same content is in the saved list.
+	func isSaved(_ clip: Clip) -> Bool {
+		saved.contains(contentHash: clip.contentHash)
+	}
+
 	/// Pastes the clip at `index` (full-list index) into the frontmost app.
 	/// `plainText` drops all formatting and pastes only the text.
-	func paste(clipAt index: Int, plainText: Bool) {
-		let clip = history.clips[index]
+	func paste(clipAt index: Int, in list: ClipList, plainText: Bool) {
+		let clip = clips(in: list)[index]
+		let store = store(for: list)
 		let items: [RawItem]
 		do {
 			if plainText {
@@ -100,8 +140,11 @@ final class AppController {
 		picker.close()
 		Paster.write(items, to: .general)
 		monitor.acknowledgeOwnWrite()
-		history.paste(at: index)
-		save()
+		switch list {
+		case .history: history.paste(at: index)
+		case .saved: saved.paste(at: index)
+		}
+		writeIndex(of: list)
 
 		guard Paster.isTrusted else {
 			Alerts.showAccessibilityNeeded()
@@ -114,10 +157,38 @@ final class AppController {
 		}
 	}
 
-	func delete(clipAt index: Int) {
-		let clip = history.delete(at: index)
-		removeBlobs(of: [clip])
-		save()
+	/// In the saved list, this is the same as unsaving.
+	func delete(clipAt index: Int, in list: ClipList) {
+		let clip = switch list {
+		case .history: history.delete(at: index)
+		case .saved: saved.delete(at: index)
+		}
+		removeBlobs(of: [clip], from: list)
+		writeIndex(of: list)
+		picker.listsDidChange()
+	}
+
+	/// Saves a copy of the clip at `index`, or unsaves it if a clip with the same content is already saved.
+	func toggleSaved(clipAt index: Int, in list: ClipList) {
+		let clip = clips(in: list)[index]
+		if let unsaved = saved.delete(contentHash: clip.contentHash) {
+			removeBlobs(of: [unsaved], from: .saved)
+		} else {
+			// A copy with its own ID and blobs, so deleting or evicting the history clip doesn't affect it.
+			var copy = clip
+			copy.id = UUID()
+			do {
+				try store(for: list).copyBlobs(of: clip, to: savedStore, as: copy.id)
+			} catch {
+				savedStore.removeBlobs(ofClipIDs: [copy.id])
+				Alerts.showError("Couldn't save the clip.", error: error)
+				return
+			}
+			let inserted = saved.save(copy)
+			assert(inserted, "the clip was checked to be unsaved above")
+		}
+		writeIndex(of: .saved)
+		picker.listsDidChange()
 	}
 
 	// MARK: - Settings and menu
@@ -128,20 +199,22 @@ final class AppController {
 		capacity = clamped
 		UserDefaults.standard.set(clamped, forKey: DefaultsKey.capacity)
 		let evicted = history.setCapacity(clamped)
-		removeBlobs(of: evicted)
-		save()
+		removeBlobs(of: evicted, from: .history)
+		writeIndex(of: .history)
+		picker.listsDidChange()
 	}
 
 	func confirmClearHistory() {
 		let confirmed = Alerts.confirm(
 			title: "Clear the clip history?",
-			message: "All \(history.clips.count) clips will be deleted. This can't be undone.",
+			message: "All \(history.clips.count) clips will be deleted. Saved clips are kept. This can't be undone.",
 			confirmTitle: "Clear History"
 		)
 		guard confirmed else { return }
 		let removed = history.removeAll()
-		removeBlobs(of: removed)
-		save()
+		removeBlobs(of: removed, from: .history)
+		writeIndex(of: .history)
+		picker.listsDidChange()
 	}
 
 	// MARK: - Private
@@ -150,9 +223,9 @@ final class AppController {
 		let clip = captured.clip
 		// Blobs are written before the clip enters the history, so the index never points at missing files.
 		do {
-			try store.writeBlobs(of: clip, items: captured.items, thumbnail: captured.thumbnailPNG)
+			try historyStore.writeBlobs(of: clip, items: captured.items, thumbnail: captured.thumbnailPNG)
 		} catch {
-			store.removeBlobs(ofClipIDs: [clip.id])
+			historyStore.removeBlobs(ofClipIDs: [clip.id])
 			Alerts.showError("Couldn't save the copied item.", error: error)
 			return
 		}
@@ -161,52 +234,82 @@ final class AppController {
 		switch result {
 		case .skippedDuplicate:
 			logger.debug("Skipped duplicate copy")
-			store.removeBlobs(ofClipIDs: [clip.id])
+			historyStore.removeBlobs(ofClipIDs: [clip.id])
 		case .inserted(let evicted):
-			removeBlobs(of: evicted)
-			save()
+			removeBlobs(of: evicted, from: .history)
+			writeIndex(of: .history)
 		}
-		picker.historyDidChange()
+		picker.listsDidChange()
 	}
 
 	/// Returns false if the app is quitting because the history couldn't be loaded or set aside.
 	private func loadHistory() -> Bool {
+		let loaded = loadIndex(of: historyStore, name: "clip history") { index in
+			history = ClipHistory(clips: index.clips, stickyRow: index.stickyRow)
+		}
+		guard loaded else { return false }
+		removeBlobs(of: history.setCapacity(capacity), from: .history)
+		historyStore.removeOrphanBlobs(keeping: Set(history.clips.map(\.id)))
+		return true
+	}
+
+	/// Returns false if the app is quitting because the saved clips couldn't be loaded or set aside.
+	private func loadSaved() -> Bool {
+		let loaded = loadIndex(of: savedStore, name: "list of saved clips") { index in
+			saved = SavedClips(clips: index.clips, stickyRow: index.stickyRow)
+		}
+		guard loaded else { return false }
+		savedStore.removeOrphanBlobs(keeping: Set(saved.clips.map(\.id)))
+		return true
+	}
+
+	/// Passes the stored index, if there is one, to `apply`. An unreadable index is moved aside and the list
+	/// starts empty. Returns false if the app is quitting because moving it aside failed too.
+	private func loadIndex(of store: ClipStore, name: String, apply: (ClipIndex) -> Void) -> Bool {
 		do {
 			if let index = try store.loadIndex() {
-				history = ClipHistory(clips: index.clips, stickyRow: index.stickyRow)
+				apply(index)
 			}
 		} catch {
 			do {
-				let folder = try store.quarantineHistory()
+				let folder = try store.quarantineIndex()
 				Alerts.showError(
-					"The clip history couldn't be read. It was moved to \(folder.path) and Pasteup starts with an empty history.",
+					"The \(name) couldn't be read. It was moved to \(folder.path) and Pasteup starts with an empty list.",
 					error: error
 				)
 			} catch let moveError {
 				Alerts.showError(
-					"The clip history couldn't be read (\(error)), and moving it aside failed too. Pasteup will quit so it doesn't overwrite it.",
+					"The \(name) couldn't be read (\(error)), and moving it aside failed too. Pasteup will quit so it doesn't overwrite it.",
 					error: moveError
 				)
 				NSApp.terminate(nil)
 				return false
 			}
 		}
-		removeBlobs(of: history.setCapacity(capacity))
-		store.removeOrphanBlobs(keeping: Set(history.clips.map(\.id)))
 		return true
 	}
 
-	private func removeBlobs(of clips: [Clip]) {
-		guard !clips.isEmpty else { return }
-		store.removeBlobs(ofClipIDs: clips.map(\.id))
-		images.forget(clipIDs: clips.map(\.id))
+	private func store(for list: ClipList) -> ClipStore {
+		switch list {
+		case .history: historyStore
+		case .saved: savedStore
+		}
 	}
 
-	private func save() {
+	private func removeBlobs(of clips: [Clip], from list: ClipList) {
+		guard !clips.isEmpty else { return }
+		store(for: list).removeBlobs(ofClipIDs: clips.map(\.id))
+		images(for: list).forget(clipIDs: clips.map(\.id))
+	}
+
+	private func writeIndex(of list: ClipList) {
 		do {
-			try store.saveIndex(HistoryIndex(history: history))
+			switch list {
+			case .history: try historyStore.saveIndex(ClipIndex(history: history))
+			case .saved: try savedStore.saveIndex(ClipIndex(saved: saved))
+			}
 		} catch {
-			Alerts.showError("Couldn't save the clip history.", error: error)
+			Alerts.showError(list == .history ? "Couldn't save the clip history." : "Couldn't store the saved clips.", error: error)
 		}
 	}
 }

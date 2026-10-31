@@ -89,24 +89,24 @@ struct PickerStateTests {
 }
 
 @Suite("Persistence format")
-struct HistoryIndexTests {
+struct ClipIndexTests {
 	@Test("Round-trips through JSON")
 	func roundTrip() throws {
 		var history = ClipHistory.copied(["A", "B", "C"])
 		history.paste(at: 2)
-		let index = HistoryIndex(history: history)
-		let decoded = try HistoryIndex.decode(index.encoded())
+		let index = ClipIndex(history: history)
+		let decoded = try ClipIndex.decode(index.encoded())
 		#expect(decoded == index)
 		#expect(decoded.stickyRow == 2)
 	}
 
 	@Test("Rejects an unknown version")
 	func rejectsUnknownVersion() throws {
-		var index = HistoryIndex(history: ClipHistory.copied(["A"]))
+		var index = ClipIndex(history: ClipHistory.copied(["A"]))
 		index.version = 99
 		let data = try index.encoded()
-		#expect(throws: HistoryIndex.DecodingError.self) {
-			try HistoryIndex.decode(data)
+		#expect(throws: ClipIndex.DecodingError.self) {
+			try ClipIndex.decode(data)
 		}
 	}
 }

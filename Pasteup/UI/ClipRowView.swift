@@ -2,11 +2,25 @@ import PasteupCore
 import SwiftUI
 
 struct ClipRowView: View {
+	enum SaveButton {
+		/// A history clip that isn't saved: the button saves it and shows only while the row is highlighted.
+		case save
+		/// A history clip that is saved: the button is always shown and unsaves it.
+		case saved
+		/// A clip in the saved list: the button unsaves it and shows only while the row is highlighted.
+		case unsave
+	}
+
 	let clip: Clip
-	/// 1-based position in the full history (not the filtered list), so the sticky row is easy to follow.
+	/// 1-based position in the full list (not the filtered one), so the sticky row is easy to follow.
 	let number: Int
 	let isSelected: Bool
+	let saveButton: SaveButton
 	let images: ImageCache
+	let onToggleSaved: () -> Void
+
+	@State private var isHovered = false
+	@State private var isButtonHovered = false
 
 	var body: some View {
 		HStack(spacing: 10) {
@@ -17,6 +31,7 @@ struct ClipRowView: View {
 			content
 				.frame(maxWidth: .infinity, alignment: .leading)
 			metadata
+			saveToggle
 		}
 		.padding(.horizontal, 8)
 		.padding(.vertical, 6)
@@ -26,6 +41,29 @@ struct ClipRowView: View {
 				.fill(isSelected ? Color.accentColor.opacity(0.28) : .clear)
 		)
 		.contentShape(Rectangle())
+		.onHover { isHovered = $0 }
+	}
+
+	private var saveToggle: some View {
+		let isVisible = saveButton == .saved || isSelected || isHovered
+		let symbol = switch saveButton {
+		case .save: "bookmark"
+		case .saved: isButtonHovered ? "bookmark.slash" : "bookmark.fill"
+		case .unsave: "bookmark.slash"
+		}
+		return Button(action: onToggleSaved) {
+			Image(systemName: symbol)
+				.font(.body)
+				.foregroundStyle(saveButton == .saved && !isButtonHovered ? Color.accentColor : .secondary)
+				.frame(width: 20, height: 28)
+				.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.help(saveButton == .save ? "Save (⌘S)" : "Unsave (⌘S)")
+		.onHover { isButtonHovered = $0 }
+		// Hidden, not removed, so the row layout doesn't shift on hover.
+		.opacity(isVisible ? 1 : 0)
+		.allowsHitTesting(isVisible)
 	}
 
 	@ViewBuilder
