@@ -70,8 +70,8 @@ The build is ad-hoc signed by default. macOS ties the Accessibility permission t
 
 ## Credits
 
-Coded 100% by Claude (Anthropic), in Claude Code. Idea, direction and testing by Fran Hrženjak. The hotkey uses [KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) by Sindre Sorhus.
+Coded 100% by Claude (Anthropic), in Claude Code. Idea, direction and testing by [Fran Hrženjak](https://changeset.hr). The hotkey uses [KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) by Sindre Sorhus.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). The license doesn't cover the Pasteup name and icon. If you publish your own build or a fork, please give it a different name and icon.
