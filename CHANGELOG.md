@@ -17,6 +17,8 @@ The existing versions have no published releases or tags yet; do not invent rele
 
 ## Unreleased
 
+## 0.2.1 - 2026-11-01
+
 ### Added
 
 - This changelog.

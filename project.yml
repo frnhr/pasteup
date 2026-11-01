@@ -36,8 +36,8 @@ targets:
       properties:
         CFBundleName: Pasteup
         CFBundleDisplayName: Pasteup
-        CFBundleShortVersionString: "0.2.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "0.2.1"
+        CFBundleVersion: "3"
         NSHumanReadableCopyright: © 2026 Fran Hrženjak
         LSUIElement: true
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
