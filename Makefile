@@ -11,7 +11,7 @@ INSTALLED_APP := /Applications/$(APP_NAME).app
 gen:
 	xcodegen generate --quiet
 
-# Update the version and build number, then regenerate the project and Info.plist.
+# Update version/build, finalize Unreleased notes, and regenerate XcodeGen outputs.
 bump-major bump-minor bump-patch:
 	python3 Scripts/bump-version.py $(patsubst bump-%,%,$@)
 

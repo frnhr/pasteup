@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Bump Pasteup's version in project.yml and regenerate its XcodeGen outputs."""
+"""Bump Pasteup's version, finalize Unreleased notes, and regenerate XcodeGen outputs."""
 
 import argparse
+from datetime import date
 from pathlib import Path
 import re
 import shutil
@@ -27,6 +28,25 @@ def setting(source, key, value_pattern):
     )
 
 
+def release_notes(source, version, release_date):
+    headings = list(re.finditer(r"^##[ \t]+(.+?)[ \t]*$", source, re.MULTILINE))
+    unreleased = [heading for heading in headings if heading[1] in ("Unreleased", "[Unreleased]")]
+    if len(unreleased) != 1 or unreleased[0] != headings[0]:
+        raise ValueError("CHANGELOG.md must start with exactly one Unreleased version section")
+    if any(re.match(rf"(?:{re.escape(version)}|\[{re.escape(version)}\])(?:\s|$)", heading[1]) for heading in headings):
+        raise ValueError(f"CHANGELOG.md already contains version {version}")
+
+    heading = unreleased[0]
+    end = headings[1].start() if len(headings) > 1 else len(source)
+    entries = source[heading.end():end].strip("\n")
+    section = f"## {version} - {release_date}\n"
+    if entries:
+        section += f"\n{entries}\n"
+    # Keep Unreleased in place and move its entries, including category headings,
+    # into the new version. Older versions remain byte-for-byte unchanged.
+    return source[:heading.end()] + "\n\n" + section + ("\n" + source[end:] if end < len(source) else "")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("part", choices=("major", "minor", "patch"))
@@ -34,6 +54,7 @@ def main():
     root = Path(__file__).resolve().parent.parent
     spec = root / "project.yml"
     plist = root / "Pasteup/Info.plist"
+    changelog = root / "CHANGELOG.md"
 
     try:
         generator = shutil.which("xcodegen")
@@ -55,13 +76,17 @@ def main():
         ):
             source = source[:start] + value + source[end:]
 
+        original_changelog = changelog.read_bytes()
+        new_changelog = release_notes(original_changelog.decode("utf-8"), new_version, date.today().isoformat())
         original_plist = plist.read_bytes() if plist.exists() else None
         try:
             spec.write_bytes(source.encode("utf-8"))
+            changelog.write_bytes(new_changelog.encode("utf-8"))
             subprocess.run([generator, "generate", "--quiet"], cwd=root, check=True)
         except (OSError, subprocess.CalledProcessError, KeyboardInterrupt):
-            # Keep the tracked spec and plist consistent if generation fails.
+            # Keep the tracked version files consistent if generation fails.
             spec.write_bytes(original)
+            changelog.write_bytes(original_changelog)
             if original_plist is None:
                 plist.unlink(missing_ok=True)
             else:

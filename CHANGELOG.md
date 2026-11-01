@@ -20,6 +20,7 @@ The existing versions have no published releases or tags yet; do not invent rele
 ### Added
 
 - This changelog.
+- Automatic changelog version update when bumping the version.
 
 ## 0.2.0
 
