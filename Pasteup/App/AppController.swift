@@ -21,6 +21,7 @@ enum ClipList {
 final class AppController {
 	private enum DefaultsKey {
 		static let capacity = "historyCapacity"
+		static let lastClipboardHash = "lastClipboardHash"
 	}
 
 	static let capacityRange = 1...1000
@@ -140,6 +141,10 @@ final class AppController {
 		picker.close()
 		Paster.write(items, to: .general)
 		monitor.acknowledgeOwnWrite()
+		// Track the actual written content (plain-text paste can have a different hash).
+		if let written = PasteboardCodec.capture(from: .general, date: .now) {
+			UserDefaults.standard.set(written.clip.contentHash, forKey: DefaultsKey.lastClipboardHash)
+		}
 		switch list {
 		case .history: history.paste(at: index)
 		case .saved: saved.paste(at: index)
@@ -157,14 +162,65 @@ final class AppController {
 		}
 	}
 
+	func move(_ id: Clip.ID, before destination: Clip.ID?, in list: ClipList) {
+		let oldHistory = history
+		let oldSaved = saved
+		let moved = switch list {
+		case .history: history.move(id, before: destination)
+		case .saved: saved.move(id, before: destination)
+		}
+		guard moved else { return }
+		_ = persistArrangement(in: list, oldHistory: oldHistory, oldSaved: oldSaved)
+		picker.listsDidChange()
+	}
+
+	/// Read the new first clip before committing, so an unreadable clip cannot leave a
+	/// successful arrangement pointing at clipboard content from the old first row.
+	private func persistArrangement(in list: ClipList, oldHistory: ClipHistory, oldSaved: SavedClips) -> Bool {
+		let previousTop = list == .history ? oldHistory.clips.first?.id : oldSaved.clips.first?.id
+		let newTop = clips(in: list).first
+		let clipboardItems: [RawItem]?
+		do {
+			clipboardItems = previousTop != newTop?.id
+				? try newTop.map { try store(for: list).readItems(of: $0) } ?? []
+				: nil
+		} catch {
+			history = oldHistory
+			saved = oldSaved
+			Alerts.showError("Couldn't read the new first clip. The list was left unchanged.", error: error)
+			return false
+		}
+		guard writeIndex(of: list) else {
+			history = oldHistory
+			saved = oldSaved
+			return false
+		}
+		if let clipboardItems {
+			Paster.write(clipboardItems, to: .general)
+			monitor.acknowledgeOwnWrite()
+			UserDefaults.standard.set(newTop?.contentHash, forKey: DefaultsKey.lastClipboardHash)
+		}
+		return true
+	}
+
+	func delete(_ id: Clip.ID, in list: ClipList) {
+		guard let index = clips(in: list).firstIndex(where: { $0.id == id }) else { return }
+		delete(clipAt: index, in: list)
+	}
+
 	/// In the saved list, this is the same as unsaving.
 	func delete(clipAt index: Int, in list: ClipList) {
+		let oldHistory = history
+		let oldSaved = saved
 		let clip = switch list {
 		case .history: history.delete(at: index)
 		case .saved: saved.delete(at: index)
 		}
+		guard persistArrangement(in: list, oldHistory: oldHistory, oldSaved: oldSaved) else {
+			picker.listsDidChange()
+			return
+		}
 		removeBlobs(of: [clip], from: list)
-		writeIndex(of: list)
 		picker.listsDidChange()
 	}
 
@@ -221,6 +277,11 @@ final class AppController {
 
 	private func ingest(_ captured: CapturedClip, atLaunch: Bool) {
 		let clip = captured.clip
+		// Row zero is no longer a proxy for the clipboard after manual arrangement.
+		// An unchanged clipboard must not insert a duplicate or reset the remembered row on restart.
+		if atLaunch, UserDefaults.standard.string(forKey: DefaultsKey.lastClipboardHash) == clip.contentHash {
+			return
+		}
 		// Blobs are written before the clip enters the history, so the index never points at missing files.
 		do {
 			try historyStore.writeBlobs(of: clip, items: captured.items, thumbnail: captured.thumbnailPNG)
@@ -237,8 +298,12 @@ final class AppController {
 			historyStore.removeBlobs(ofClipIDs: [clip.id])
 		case .inserted(let evicted):
 			removeBlobs(of: evicted, from: .history)
-			writeIndex(of: .history)
+			guard writeIndex(of: .history) else {
+				picker.listsDidChange()
+				return
+			}
 		}
+		UserDefaults.standard.set(clip.contentHash, forKey: DefaultsKey.lastClipboardHash)
 		picker.listsDidChange()
 	}
 
@@ -302,14 +367,17 @@ final class AppController {
 		images(for: list).forget(clipIDs: clips.map(\.id))
 	}
 
-	private func writeIndex(of list: ClipList) {
+	@discardableResult
+	private func writeIndex(of list: ClipList) -> Bool {
 		do {
 			switch list {
 			case .history: try historyStore.saveIndex(ClipIndex(history: history))
 			case .saved: try savedStore.saveIndex(ClipIndex(saved: saved))
 			}
+			return true
 		} catch {
 			Alerts.showError(list == .history ? "Couldn't save the clip history." : "Couldn't store the saved clips.", error: error)
+			return false
 		}
 	}
 }

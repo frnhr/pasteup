@@ -73,6 +73,19 @@ public struct ClipHistory: Sendable {
 		return clip
 	}
 
+	/// Moves a stable ID before another ID, or to the end for nil. Missing IDs are a no-op.
+	/// Arranging selects and remembers the moved clip; subsequent pastes retain the sticky-row rule.
+	@discardableResult
+	public mutating func move(_ id: Clip.ID, before destination: Clip.ID?) -> Bool {
+		guard id != destination, let source = clips.firstIndex(where: { $0.id == id }),
+		      destination == nil || clips.contains(where: { $0.id == destination }) else { return false }
+		let clip = clips.remove(at: source)
+		let target = destination.flatMap { id in clips.firstIndex { $0.id == id } } ?? clips.count
+		clips.insert(clip, at: target)
+		stickyRow = target
+		return true
+	}
+
 	@discardableResult
 	public mutating func delete(at index: Int) -> Clip {
 		precondition(clips.indices.contains(index), "delete index \(index) out of range 0..<\(clips.count)")

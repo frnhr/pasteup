@@ -25,10 +25,14 @@ struct PickerView: View {
 				list
 			}
 			Divider()
+			Text(model.state.isFiltering ? "Clear filter to reorder · Drag outside to delete" : "Drag clips to reorder · Drag outside to delete · Esc cancels drag")
+				.font(.caption2).foregroundStyle(.secondary).padding(.top, 4)
 			footer
 		}
 		.frame(width: Self.size.width, height: Self.size.height)
 		.background(.regularMaterial)
+		.coordinateSpace(name: "picker")
+		.onPreferenceChange(PickerGeometryKey.self) { model.geometry = $0 }
 		.onAppear {
 			isFilterFocused = true
 		}
@@ -58,11 +62,23 @@ struct PickerView: View {
 						ClipRowView(
 							clip: visible.clip,
 							number: visible.index + 1,
-							isSelected: visible.row == model.state.selection,
+							isSelected: model.draggedID.map { $0 == visible.clip.id } ?? (visible.row == model.state.selection),
 							saveButton: saveButton(for: visible.clip),
 							images: model.images,
 							onToggleSaved: { model.toggleSaved(row: visible.row) }
 						)
+						.background {
+							GeometryReader { geometry in
+								Color.clear.preference(key: PickerGeometryKey.self,
+									value: PickerGeometry(rows: [visible.clip.id: geometry.frame(in: .named("picker"))]))
+							}
+						}
+						.opacity(model.draggedID == visible.clip.id ? 0.45 : 1)
+						.overlay(alignment: .top) {
+							if model.insertionID == visible.clip.id {
+								Rectangle().fill(Color.accentColor).frame(height: 3)
+							}
+						}
 						.onTapGesture(count: 2) {
 							model.paste(row: visible.row)
 						}
@@ -71,10 +87,19 @@ struct PickerView: View {
 						}
 					}
 				}
+				.overlay(alignment: .bottom) {
+					if model.insertionAtEnd { Rectangle().fill(Color.accentColor).frame(height: 3) }
+				}
 				.padding(6)
 			}
+			.background {
+				GeometryReader { geometry in
+					Color.clear.preference(key: PickerGeometryKey.self,
+						value: PickerGeometry(viewport: geometry.frame(in: .named("picker"))))
+				}
+			}
 			.onChange(of: model.state.selectedClipIndex, initial: true) { _, index in
-				guard let index, model.clips.indices.contains(index) else { return }
+				guard model.draggedID == nil, let index, model.clips.indices.contains(index) else { return }
 				proxy.scrollTo(model.clips[index].id)
 			}
 		}
