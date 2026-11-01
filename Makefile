@@ -6,10 +6,14 @@ DEBUG_APP := $(DERIVED)/Build/Products/Debug/$(APP_NAME).app
 RELEASE_APP := $(DERIVED)/Build/Products/Release/$(APP_NAME).app
 INSTALLED_APP := /Applications/$(APP_NAME).app
 
-.PHONY: gen icons build release test install run clean promo-take promo-render
+.PHONY: gen icons build release test install run clean promo-take promo-render bump-major bump-minor bump-patch
 
 gen:
 	xcodegen generate --quiet
+
+# Update the version and build number, then regenerate the project and Info.plist.
+bump-major bump-minor bump-patch:
+	python3 Scripts/bump-version.py $(patsubst bump-%,%,$@)
 
 # Regenerates the app icon and the menu bar icon in the asset catalog.
 icons:
